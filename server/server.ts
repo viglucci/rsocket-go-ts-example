@@ -9,8 +9,37 @@ import {
 import {TcpServerTransport} from "rsocket-tcp-server";
 import {exit} from "process";
 import net from "net";
+import {decodeCompositeMetadata, decodeRoutes, WellKnownMimeType} from "rsocket-composite-metadata";
+import MESSAGE_RSOCKET_ROUTING = WellKnownMimeType.MESSAGE_RSOCKET_ROUTING;
 
 let serverCloseable: Closeable;
+
+function mapMetaData(payload: Payload) {
+  const mappedMetaData = new Map<string, any>();
+  if (payload.metadata) {
+    const decodedCompositeMetaData = decodeCompositeMetadata(payload.metadata);
+
+    for (let metaData of decodedCompositeMetaData) {
+      switch (metaData.mimeType) {
+        case MESSAGE_RSOCKET_ROUTING.toString(): {
+          const tags = [];
+          for (let decodedRoute of decodeRoutes(metaData.content)) {
+            tags.push(decodedRoute);
+          }
+          const joinedRoute = tags.join(".");
+          mappedMetaData.set(MESSAGE_RSOCKET_ROUTING.toString(), joinedRoute);
+          break;
+        }
+        default: {
+          if (metaData.mimeType) {
+            mappedMetaData.set(metaData.mimeType.toString(), metaData.content.toString());
+          }
+        }
+      }
+    }
+  }
+  return mappedMetaData;
+}
 
 function makeServer(listenOptions: net.ListenOptions) {
   return new RSocketServer({
@@ -25,22 +54,25 @@ function makeServer(listenOptions: net.ListenOptions) {
             OnNextSubscriber &
             OnExtensionSubscriber
         ) => {
-          const timeout = setTimeout(
-            () => {
+          const metaData = mapMetaData(payload);
+          const route = metaData.get(MESSAGE_RSOCKET_ROUTING.toString());
+          switch (route) {
+            case "echo": {
               const payloadData = payload.data || Buffer.alloc(0);
-              const data = Buffer.concat([Buffer.from("Echo: "), payloadData]);
+              const responseData = Buffer.concat([Buffer.from("Echo: "), payloadData]);
               responderStream.onNext(
-                { data },
+                { data: responseData },
                 true
               )
-              console.log("response sent...")
-            },
-            1000
-          );
-          console.log("responding after 1 second...");
+              console.log(`responded with: [data: ${responseData.toString()}]`)
+              break;
+            }
+            default: {
+              responderStream.onError(new Error("Unknown or missing route."))
+            }
+          }
           return {
             cancel: () => {
-              clearTimeout(timeout);
               console.log("cancelled");
             },
             onExtension: () => {

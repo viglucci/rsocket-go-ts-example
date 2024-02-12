@@ -12,6 +12,7 @@
   "devDependencies": {
     "rsocket-core": "^1.0.0-alpha.3",
     "rsocket-tcp-server": "^1.0.0-alpha.3",
+    "rsocket-composite-metadata": "^1.0.0-alpha.3",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3"
   },
